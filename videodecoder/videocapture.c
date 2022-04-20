@@ -226,9 +226,11 @@ int capture_image(int fd)
         }
     }
 
+    char *outbuf = NULL;
+
     if(buf.field == V4L2_FIELD_TOP) {
         printf("TOP - Buf Length: %d, Bytes used: %d \n", buf.length, buf.bytesused);
-        decode_frame(frame_buffers[buf.index].start, 2);
+        outbuf = decode_frame(frame_buffers[buf.index].start, 2);
     } else if(buf.field == V4L2_FIELD_BOTTOM) {
         printf("BOT - Buf Length: %d, Bytes used: %d \n", buf.length, buf.bytesused);
         decode_frame(frame_buffers[buf.index].start, 3);
@@ -236,7 +238,7 @@ int capture_image(int fd)
 
     queue_buffer(fd, buf.index);
 
-    return 0;
+    return outbuf;
 }
 
 int run_capture(char *device)
@@ -249,41 +251,24 @@ int run_capture(char *device)
 
     decode_init();
 
-    while (true)
+    fd = open(device, O_RDWR);
+    if (fd == -1)
     {
-        fd = open(device, O_RDWR);
-        if (fd == -1)
-        {
-            perror("Opening video device");
-            return 1;
-        }
-
-        if (print_caps(fd))
-        {
-            return 1;
-        }
-        
-        if (init_mmap(fd))
-        {
-            return 1;
-        }
-
-        start_capture(fd);
-
-        for (int i = 0;; i++)
-        {
-            if (capture_image(fd) == -1) 
-            {
-                break;
-            }
-        }
-        
-        stop_capture(fd);
-
-        deinit_mmap(fd);
-
-        close(fd);
+        perror("Opening video device");
+        return 1;
     }
 
-    return 0;
+    if (print_caps(fd))
+    {
+        return 1;
+    }
+    
+    if (init_mmap(fd))
+    {
+        return 1;
+    }
+
+    start_capture(fd);
+
+    return fd;
 }

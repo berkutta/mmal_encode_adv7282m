@@ -12,6 +12,6 @@
 #endif
 
 void decode_init();
-void decode_frame(char* data, uint32_t frame_number);
+char *decode_frame(char* data, uint32_t frame_number);
 
 #endif

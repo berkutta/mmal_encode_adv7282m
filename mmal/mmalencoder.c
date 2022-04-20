@@ -105,6 +105,8 @@ void mmal_new_data(char *buffer, size_t length)
     }
 }
 
+long long timestamp = 0;
+
 int mmal_encoder(void)
 {
     MMAL_STATUS_T status = MMAL_EINVAL;
@@ -208,13 +210,34 @@ int mmal_encoder(void)
     fprintf(stderr, "start encoding\n");
     start = vcos_getmicrosecs();
 
+    printf("Start capture \n");
+    int fd = run_capture("/dev/video0");
+
     /* This is the main processing loop */
     for (;;)
     {
         MMAL_BUFFER_HEADER_T *buffer;
 
+        printf("Waiting for Semaphore \n");
+
         /* Wait for buffer headers to be available on either of the encoder ports */
         vcos_semaphore_wait(&context.semaphore);
+
+        printf("Got Semaphore \n");
+
+        char *capturebuf = capture_image(fd);
+
+        if (capturebuf != -1 && capturebuf != NULL) 
+        {
+            printf("Retrieving frame delta ms: %lld \n", current_timestamp() - timestamp);
+            timestamp = current_timestamp();
+
+            mmal_new_data(capturebuf, CANVAS_WIDTH*CANVAS_HEIGHT * 2);
+        } else {
+            printf("Capture failed... \n");
+            /* Kick the processing thread */
+            vcos_semaphore_post(&context.semaphore);
+        }
 
         /* Get our encoded frames */
         while ((buffer = mmal_queue_get(context.queue)) != NULL)

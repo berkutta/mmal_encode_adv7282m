@@ -4,16 +4,6 @@
 #include <pthread.h>
 
 #include "mmalencoder.h"
-#include "videocapture.h"
-#include "videodecoder.h"
-
-void *video_capture_function(void *arg)
-{
-    while (1)
-    {
-        run_capture("/dev/video0");
-    }
-}
 
 void *video_mmal_encoder_function(void *arg)
 {
@@ -34,9 +24,6 @@ int main(void)
 
     pthread_t video_mmal_encoder_thread;
     pthread_create(&video_mmal_encoder_thread, NULL, &video_mmal_encoder_function, NULL);
-
-    pthread_t video_capture_thread;
-    pthread_create(&video_capture_thread, NULL, &video_capture_function, NULL);
 
     pthread_exit(0);
 }
