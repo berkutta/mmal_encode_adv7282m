@@ -6,8 +6,8 @@
 #include "interface/vcos/vcos.h"
 #include <stdio.h>
 
-#define WIDTH 720 - 16
-#define HEIGHT 576 / 2
+#include "videodecoder.h"
+
 #define NUM_OUTPUT_BUFFERS 500
 
 #define CHECK_STATUS(status, msg)  \
@@ -78,9 +78,11 @@ void mmal_new_data(char *buffer, size_t length)
 
     // Uncomment the following Line to get the Crash
     // usleep(100 * 1000);
-
+    
     if ((mbuffer = mmal_queue_get(pool_in->queue)) != NULL)
     {
+	    printf("Alloc size: %d, length: %d \n", mbuffer->alloc_size, length);
+
         mmal_buffer_header_mem_lock(mbuffer);
 
         memcpy(mbuffer->data, buffer, length);
@@ -97,6 +99,9 @@ void mmal_new_data(char *buffer, size_t length)
 
         printf("mmal_port_send_buffer status: %d \n", status);
         fflush(stdout);
+    } else {
+        printf("mmal_queue_get failed \n");
+        fflush(stdout);
     }
 }
 
@@ -104,10 +109,8 @@ int mmal_encoder(void)
 {
     MMAL_STATUS_T status = MMAL_EINVAL;
 
-    unsigned int count;
     uint32_t start, end;
     FILE *out_file;
-    int i;
 
     bcm_host_init();
 
@@ -122,12 +125,10 @@ int mmal_encoder(void)
     MMAL_ES_FORMAT_T *format_in = encoder->input[0]->format;
     format_in->type = MMAL_ES_TYPE_VIDEO;
     format_in->encoding = MMAL_ENCODING_UYVY;
-    // format_in->es->video.width = VCOS_ALIGN_UP(WIDTH, 32);
-    // format_in->es->video.height = VCOS_ALIGN_UP(HEIGHT, 16);
-    format_in->es->video.width = WIDTH;
-    format_in->es->video.height = HEIGHT;
-    format_in->es->video.crop.width = WIDTH;
-    format_in->es->video.crop.height = HEIGHT;
+    format_in->es->video.width = VCOS_ALIGN_UP(CANVAS_WIDTH, 32);
+    format_in->es->video.height = VCOS_ALIGN_UP(CANVAS_HEIGHT, 16);
+    format_in->es->video.crop.width = CANVAS_WIDTH;
+    format_in->es->video.crop.height = CANVAS_HEIGHT;
     format_in->es->video.frame_rate.num = 25;
     format_in->es->video.frame_rate.den = 1;
     format_in->es->video.par.num = 1;
@@ -143,8 +144,8 @@ int mmal_encoder(void)
     MMAL_ES_FORMAT_T *format_out = encoder->output[0]->format;
     format_out->type = MMAL_ES_TYPE_VIDEO;
     format_out->encoding = MMAL_ENCODING_H264;
-    format_out->es->video.width = WIDTH;
-    format_out->es->video.height = HEIGHT;
+    format_out->es->video.width = CANVAS_WIDTH;
+    format_out->es->video.height = CANVAS_HEIGHT;
     format_out->es->video.frame_rate.num = 25;
     format_out->es->video.frame_rate.den = 1;
     format_out->bitrate = 10000000;
@@ -165,8 +166,8 @@ int mmal_encoder(void)
     encoder->input[0]->buffer_size = encoder->input[0]->buffer_size_min;
     encoder->output[0]->buffer_num = 6;
     // encoder->output[0]->buffer_size = encoder->output[0]->buffer_size_min;
-    encoder->output[0]->buffer_size = 1024 << 10;
-
+    encoder->output[0]->buffer_size = 1024 << 10; 
+    
     pool_in = mmal_port_pool_create(encoder->input[0], encoder->input[0]->buffer_num,
                                     encoder->input[0]->buffer_size);
     pool_out = mmal_port_pool_create(encoder->output[0], encoder->output[0]->buffer_num,
@@ -225,7 +226,7 @@ int mmal_encoder(void)
 
             mmal_buffer_header_mem_lock(buffer);
 
-            fprintf(stderr, "encoded frame, width: %d \n", WIDTH);
+            fprintf(stderr, "encoded frame, width: %d \n", CANVAS_WIDTH);
             fwrite(buffer->data, buffer->length, 1, out_file);
 
             mmal_buffer_header_mem_unlock(buffer);

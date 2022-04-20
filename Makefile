@@ -10,7 +10,7 @@ LIBS	:= -L/opt/vc/lib -lrt -lbcm_host -lvcos -lvchiq_arm -pthread -lmmal_core -l
 
 all: app
 
-app: main.o mmal/mmalencoder.o videodecoder/videocapture.o
+app: main.o mmal/mmalencoder.o videodecoder/videocapture.o videodecoder/videodecoder_yuyv.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 clean:

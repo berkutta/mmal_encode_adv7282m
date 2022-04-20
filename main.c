@@ -5,6 +5,7 @@
 
 #include "mmalencoder.h"
 #include "videocapture.h"
+#include "videodecoder.h"
 
 void *video_capture_function(void *arg)
 {

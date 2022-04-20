@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 
-#include "videocapture.h"
+#include "videodecoder.h"
 
 typedef struct
 {
@@ -39,7 +39,7 @@ static int xioctl(int fd, int request, void *arg)
 
     return r;
 }
-
+ 
 int print_caps(int fd)
 {
     struct v4l2_format fmt = {0};
@@ -54,7 +54,7 @@ int print_caps(int fd)
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
 #endif
-
+    
     if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
     {
         perror("Setting Pixel Format");
@@ -62,12 +62,12 @@ int print_caps(int fd)
     }
 
     printf("Selected Camera Mode:\n"
-           "  Width: %d\n"
-           "  Height: %d\n"
-           "  Field: %d\n",
-           fmt.fmt.pix.width,
-           fmt.fmt.pix.height,
-           fmt.fmt.pix.field);
+            "  Width: %d\n"
+            "  Height: %d\n"
+            "  Field: %d\n",
+            fmt.fmt.pix.width,
+            fmt.fmt.pix.height,
+            fmt.fmt.pix.field);
     return 0;
 }
 
@@ -77,13 +77,13 @@ int init_mmap(int fd)
     req.count = CAMERA_NUM_BUF;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
-
+ 
     if (-1 == xioctl(fd, VIDIOC_REQBUFS, &req))
     {
         perror("Requesting Buffer");
         return 1;
     }
-
+ 
     for (int i = 0; i < CAMERA_NUM_BUF; i++)
     {
         struct v4l2_buffer buf = {0};
@@ -109,7 +109,7 @@ int init_mmap(int fd)
 int deinit_mmap(int fd)
 {
     unsigned int i;
-
+    
     for (i = 0; i < CAMERA_NUM_BUF; i++)
     {
         if (-1 == munmap(frame_buffers[i].start, frame_buffers[i].size))
@@ -118,25 +118,29 @@ int deinit_mmap(int fd)
             return 1;
         }
     }
+
+    return 0;
 }
 
 int queue_buffer(int fd, int id)
 {
-    struct v4l2_buffer buf = {0};
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-    buf.index = id;
-    if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
-    {
-        perror("Queue Buffer");
-        return 1;
-    }
+        struct v4l2_buffer buf = {0};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = id;
+        if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
+        {
+            perror("Queue Buffer");
+            return 1;
+        }
+    
+        if (-1 == xioctl(fd, VIDIOC_STREAMON, &buf.type))
+        {
+            perror("Start Capture");
+            return 1;
+        }
 
-    if (-1 == xioctl(fd, VIDIOC_STREAMON, &buf.type))
-    {
-        perror("Start Capture");
-        return 1;
-    }
+        return 0;
 }
 
 void start_capture(int fd)
@@ -157,14 +161,16 @@ int stop_capture(int fd)
     type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (-1 == xioctl(fd, VIDIOC_STREAMOFF, &type))
     {
-        perror("VIDIOC_STREAMOFF");
-        return 1;
+            perror("VIDIOC_STREAMOFF");
+            return 1;
     }
+
+    return 0;
 }
 
 long long current_timestamp()
 {
-    struct timeval te;
+    struct timeval te; 
     gettimeofday(&te, NULL);                                         // get current time
     long long milliseconds = te.tv_sec * 1000LL + te.tv_usec / 1000; // calculate milliseconds
     return milliseconds;
@@ -220,10 +226,13 @@ int capture_image(int fd)
         }
     }
 
-    // Half the resolution as we are in alternate mode
-    write_gst_data(frame_buffers[buf.index].start, ((IMAGE_WIDTH - 16) * IMAGE_HEIGHT * 2) / 2); // UYVY Pixel is 2 Byte
-                                                                                                 // MMAL needs WIDTH to be a multiple of 32
-                                                                                                 //            HEIGHT needs to be a multiple of 16
+    if(buf.field == V4L2_FIELD_TOP) {
+        printf("TOP - Buf Length: %d, Bytes used: %d \n", buf.length, buf.bytesused);
+        decode_frame(frame_buffers[buf.index].start, 2);
+    } else if(buf.field == V4L2_FIELD_BOTTOM) {
+        printf("BOT - Buf Length: %d, Bytes used: %d \n", buf.length, buf.bytesused);
+        decode_frame(frame_buffers[buf.index].start, 3);
+    }
 
     queue_buffer(fd, buf.index);
 
@@ -238,6 +247,8 @@ int run_capture(char *device)
     system("v4l2-ctl --set-standard=5");
 #endif
 
+    decode_init();
+
     while (true)
     {
         fd = open(device, O_RDWR);
@@ -251,7 +262,7 @@ int run_capture(char *device)
         {
             return 1;
         }
-
+        
         if (init_mmap(fd))
         {
             return 1;
@@ -261,12 +272,12 @@ int run_capture(char *device)
 
         for (int i = 0;; i++)
         {
-            if (capture_image(fd) == -1)
+            if (capture_image(fd) == -1) 
             {
                 break;
             }
         }
-
+        
         stop_capture(fd);
 
         deinit_mmap(fd);
