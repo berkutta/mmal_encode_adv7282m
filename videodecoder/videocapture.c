@@ -1,265 +1,160 @@
-#include <errno.h>
-#include <fcntl.h>
-#include <linux/videodev2.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <unistd.h>
-#include <sys/time.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <linux/videodev2.h>
 
-#include "videodecoder.h"
-
-typedef struct
-{
-    void *start;
-    size_t size;
-    struct timespec time;
+struct v4l2_mmap_info {
     int index;
-    int id;
-} buffer_t;
-
-// Internal camera buffers
-#define CAMERA_NUM_BUF 5
-
-// mmap buffers
-buffer_t frame_buffers[CAMERA_NUM_BUF];
-
-static int xioctl(int fd, int request, void *arg)
-{
-    int r;
-
-    do
-    {
-        r = ioctl(fd, request, arg);
-    } while (-1 == r && EINTR == errno);
-
-    return r;
-}
- 
-int print_caps(int fd)
-{
-    struct v4l2_format fmt = {0};
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = IMAGE_WIDTH;
-    fmt.fmt.pix.height = IMAGE_HEIGHT;
-
-#ifdef __arm__
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
-#else
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
-#endif
-    
-    if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
-    {
-        perror("Setting Pixel Format");
-        return 1;
-    }
-
-    printf("Selected Camera Mode:\n"
-            "  Width: %d\n"
-            "  Height: %d\n"
-            "  Field: %d\n",
-            fmt.fmt.pix.width,
-            fmt.fmt.pix.height,
-            fmt.fmt.pix.field);
-    return 0;
-}
-
-int init_mmap(int fd)
-{
-    struct v4l2_requestbuffers req = {0};
-    req.count = CAMERA_NUM_BUF;
-    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    req.memory = V4L2_MEMORY_MMAP;
- 
-    if (-1 == xioctl(fd, VIDIOC_REQBUFS, &req))
-    {
-        perror("Requesting Buffer");
-        return 1;
-    }
- 
-    for (int i = 0; i < CAMERA_NUM_BUF; i++)
-    {
-        struct v4l2_buffer buf = {0};
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = V4L2_MEMORY_MMAP;
-        buf.index = i;
-        if (-1 == xioctl(fd, VIDIOC_QUERYBUF, &buf))
-        {
-            perror("Querying Buffer");
-            return 1;
-        }
-
-        frame_buffers[i].size = buf.length;
-        frame_buffers[i].start = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, buf.m.offset);
-
-        printf("Length: %d \n", frame_buffers[i].size);
-        printf("Image Length: %d \n", buf.bytesused);
-    }
-
-    return 0;
-}
-
-int deinit_mmap(int fd)
-{
-    unsigned int i;
-    
-    for (i = 0; i < CAMERA_NUM_BUF; i++)
-    {
-        if (-1 == munmap(frame_buffers[i].start, frame_buffers[i].size))
-        {
-            perror("munmap");
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-int queue_buffer(int fd, int id)
-{
-        struct v4l2_buffer buf = {0};
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = V4L2_MEMORY_MMAP;
-        buf.index = id;
-        if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
-        {
-            perror("Queue Buffer");
-            return 1;
-        }
-    
-        if (-1 == xioctl(fd, VIDIOC_STREAMON, &buf.type))
-        {
-            perror("Start Capture");
-            return 1;
-        }
-
-        return 0;
-}
-
-void start_capture(int fd)
-{
-
-    for (int i = 0; i < CAMERA_NUM_BUF; i++)
-    {
-        // Enqueue buffer
-        //
-        queue_buffer(fd, i);
-    }
-}
-
-int stop_capture(int fd)
-{
-    enum v4l2_buf_type type;
-
-    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (-1 == xioctl(fd, VIDIOC_STREAMOFF, &type))
-    {
-            perror("VIDIOC_STREAMOFF");
-            return 1;
-    }
-
-    return 0;
-}
-
-long long current_timestamp()
-{
-    struct timeval te; 
-    gettimeofday(&te, NULL);                                         // get current time
-    long long milliseconds = te.tv_sec * 1000LL + te.tv_usec / 1000; // calculate milliseconds
-    return milliseconds;
-}
-
-bool waiting_for_top_frame = true;
-
-int capture_image(int fd)
-{
-    struct v4l2_buffer buf = {0};
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(fd, &fds);
-    struct timeval tv = {0};
-    tv.tv_sec = 1;
-    int r = select(fd + 1, &fds, NULL, NULL, &tv);
-    if (-1 == r)
-    {
-        perror("Waiting for Frame");
-        return 1;
-    }
-
-    if (r == 0)
-    {
-        printf("Timeout occured! \n");
-        return -1;
-    }
-
-    if (-1 == xioctl(fd, VIDIOC_DQBUF, &buf))
-    {
-        perror("Retrieving Frame");
-        return 1;
-    }
-
-    decode_frame(frame_buffers[buf.index].start, 2);
-
-    queue_buffer(fd, buf.index);
-
-    return 0;
-}
+    int length;
+    char *addr;
+};
+#define NUM_BUFFERS (3)
 
 int run_capture(char *device)
 {
-    int fd;
+    int i = 0;
+    int status = 0;
+    int v4l2_fd = 0;
+    struct v4l2_format format;
+    struct v4l2_requestbuffers requestbuffers;
+    struct v4l2_buffer buffer;
+    struct v4l2_mmap_info mmap_info[NUM_BUFFERS];
 
-#ifdef __arm__
-    system("v4l2-ctl --set-standard=5");
-#endif
-
-    decode_init();
-
-    while (true)
-    {
-        fd = open(device, O_RDWR);
-        if (fd == -1)
-        {
-            perror("Opening video device");
-            return 1;
-        }
-
-        if (print_caps(fd))
-        {
-            return 1;
-        }
-        
-        if (init_mmap(fd))
-        {
-            return 1;
-        }
-
-        start_capture(fd);
-
-        for (int i = 0;; i++)
-        {
-            if (capture_image(fd) == -1) 
-            {
-                break;
-            }
-        }
-        
-        stop_capture(fd);
-
-        deinit_mmap(fd);
-
-        close(fd);
+    v4l2_fd = open("/dev/video0", O_RDWR);
+    if (v4l2_fd == -1) {
+        printf("%d: open error\n", __LINE__);
+        return -1;
     }
 
-    return 0;
+    memset(&format, 0x00, sizeof(struct v4l2_format));
+    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    format.fmt.pix.width = 720;
+    format.fmt.pix.height = 576;
+    format.fmt.pix.field = V4L2_FIELD_NONE;
+    format.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
+    status = ioctl(v4l2_fd, VIDIOC_S_FMT, &format);
+    if (status < 0) {
+        printf("%d: ioctl VIDIOC_S_FMT error\n", __LINE__);
+        return -1;
+    }
+
+    memset(&format, 0x00, sizeof(struct v4l2_format));
+    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    status = ioctl(v4l2_fd, VIDIOC_G_FMT, &format);
+    if (status < 0) {
+        printf("%d: ioctl VIDIOC_G_FMT error\n", __LINE__);
+        return -1;
+    }
+    printf("format width: [%d]\n", format.fmt.pix.width);
+    printf("format height: [%d]\n", format.fmt.pix.height);
+
+    memset(&requestbuffers, 0x00, sizeof(struct v4l2_requestbuffers));
+    requestbuffers.count = NUM_BUFFERS;
+    requestbuffers.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    requestbuffers.memory = V4L2_MEMORY_MMAP;
+    status = ioctl(v4l2_fd, VIDIOC_REQBUFS, &requestbuffers);
+    if (status < 0) {
+        printf("%d: ioctl VIDIOC_REQBUFS error\n", __LINE__);
+        return -1;
+    }
+
+    for (i = 0; i < requestbuffers.count; i++) {
+        buffer.index = i;
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        status = ioctl(v4l2_fd, VIDIOC_QUERYBUF, &buffer);
+        if (status < 0) {
+            printf("%d: ioctl VIDIOC_QUERYBUF error\n", __LINE__);
+            return -1;
+        }
+
+        mmap_info[i].index = buffer.index;
+        mmap_info[i].length = buffer.length;
+        mmap_info[i].addr = (char *)mmap(NULL,
+                buffer.length,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                v4l2_fd,
+                buffer.m.offset);
+        if (mmap_info[i].addr == MAP_FAILED) {
+            printf("%d: mmap error\n", __LINE__);
+            return -1;
+        }
+    }
+
+    for (i = 0; i < requestbuffers.count; i ++) {
+        buffer.index = i;
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        status = ioctl(v4l2_fd, VIDIOC_QBUF, &buffer);
+        if (status < 0) {
+            printf("%d: ioctl VIDIOC_QBUF error\n", __LINE__);
+            return -1;
+        }
+    }
+
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    status = ioctl(v4l2_fd, VIDIOC_STREAMON, &type);
+    if (status < 0) {
+        printf("%d: ioctl VIDIOC_STREAMOFF error\n", __LINE__);
+        return -1;
+    }
+
+    FILE *fp = NULL;
+    fp = fopen("frame.yuv", "wb");
+    if (fp == NULL) {
+        printf("%d: fopen error\n", __LINE__);
+        return -1;
+    }
+
+    while(1) {
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        status = ioctl(v4l2_fd, VIDIOC_DQBUF, &buffer);
+        if (status < 0) {
+            printf("%d: ioctl VIDIOC_DQBUF error\n", __LINE__);
+            return -1;
+        }
+
+        printf("Captured.. \n");
+
+        decode_frame(mmap_info[buffer.index].addr, 2);
+
+        /*
+        status = fwrite(mmap_info[buffer.index].addr, mmap_info[buffer.index].length, 1, fp);
+        if (status == 0) {
+            printf("%d: fwrite error\n", __LINE__);
+            return -1;
+        }
+        */
+
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        buffer.m.offset = (unsigned long)mmap_info[buffer.index].addr;
+        status = ioctl(v4l2_fd, VIDIOC_QBUF, &buffer);
+        if (status < 0) {
+            printf("%d: ioctl VIDIOC_DQBUF error\n", __LINE__);
+            return -1;
+        }
+    }
+
+    fflush(fp);
+    fclose(fp);
+
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    status = ioctl(v4l2_fd, VIDIOC_STREAMOFF, &type);
+    if (status < 0) {
+        printf("%d: ioctl VIDIOC_STREAMOFF error\n", __LINE__);
+        return -1;
+    }
+    close (v4l2_fd);
+
+    return status;
 }

@@ -9,10 +9,8 @@
 
 void *video_capture_function(void *arg)
 {
-    while (1)
-    {
-        run_capture("/dev/video0");
-    }
+    decode_init();
+    run_capture("/dev/video0");
 }
 
 void *video_mmal_encoder_function(void *arg)
