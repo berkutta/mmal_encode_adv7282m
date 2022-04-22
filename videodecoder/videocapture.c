@@ -49,7 +49,7 @@ int print_caps(int fd)
 
 #ifdef __arm__
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
-    fmt.fmt.pix.field = V4L2_FIELD_ALTERNATE;
+    fmt.fmt.pix.field = V4L2_FIELD_NONE;
 #else
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
@@ -208,31 +208,7 @@ int capture_image(int fd)
         return 1;
     }
 
-    if (waiting_for_top_frame == true)
-    {
-        if (buf.field == V4L2_FIELD_TOP)
-        {
-            printf("Got TOP Frame, unlocking waiting \n");
-
-            waiting_for_top_frame = false;
-        }
-        else if (buf.field == V4L2_FIELD_BOTTOM)
-        {
-            printf("Got BOTTOM Frame, waiting for TOP frame.. \n");
-
-            queue_buffer(fd, buf.index);
-
-            return 0;
-        }
-    }
-
-    if(buf.field == V4L2_FIELD_TOP) {
-        printf("TOP - Buf Length: %d, Bytes used: %d \n", buf.length, buf.bytesused);
-        decode_frame(frame_buffers[buf.index].start, 2);
-    } else if(buf.field == V4L2_FIELD_BOTTOM) {
-        printf("BOT - Buf Length: %d, Bytes used: %d \n", buf.length, buf.bytesused);
-        decode_frame(frame_buffers[buf.index].start, 3);
-    }
+    decode_frame(frame_buffers[buf.index].start, 2);
 
     queue_buffer(fd, buf.index);
 

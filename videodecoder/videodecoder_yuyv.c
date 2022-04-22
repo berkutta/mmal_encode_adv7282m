@@ -17,21 +17,13 @@ void decode_init() {
 }
 
 void decode_frame(char* data, uint32_t frame_number) {
-    if(frame_number % 2 == 0) {
-        if(data == NULL)    return;
+    if(data == NULL)    return;
 
-        for(int y = 1; y < (CANVAS_HEIGHT/2); y+=1) {
-            memcpy(uyvybuffer + ( ( (y * 2) - 1) * CANVAS_WIDTH * 2), data + (y * IMAGE_WIDTH * 2), IMAGE_WIDTH * 2);
-        }
-
-        write_gst_data(uyvybuffer, CANVAS_WIDTH*CANVAS_HEIGHT * 2);
-    } else {
-        if(data == NULL)    return;
-
-        for(int y = 1; y < (CANVAS_HEIGHT/2); y+=1) {
-            memcpy(uyvybuffer +           ( y* 2 * CANVAS_WIDTH * 2), data + (y * IMAGE_WIDTH * 2), IMAGE_WIDTH * 2);
-        }
+    for(int y = 0; y < (CANVAS_HEIGHT - 1); y+=1) {
+        memcpy(uyvybuffer + (y * CANVAS_WIDTH * 2), data  + (y * IMAGE_WIDTH * 2), IMAGE_WIDTH * 2);
     }
+
+    write_gst_data(uyvybuffer, CANVAS_WIDTH*CANVAS_HEIGHT * 2);
 }
 
 #endif
