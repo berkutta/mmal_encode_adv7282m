@@ -9,6 +9,9 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <linux/videodev2.h>
+#include <assert.h>
+
+#include "videodecoder.h"
 
 struct v4l2_mmap_info {
     int index;
@@ -16,6 +19,16 @@ struct v4l2_mmap_info {
     char *addr;
 };
 #define NUM_BUFFERS (3)
+
+long long timestamp = 0;
+
+long long current_timestamp()
+{
+    struct timeval te; 
+    gettimeofday(&te, NULL);                                         // get current time
+    long long milliseconds = te.tv_sec * 1000LL + te.tv_usec / 1000; // calculate milliseconds
+    return milliseconds;
+}
 
 int run_capture(char *device)
 {
@@ -27,7 +40,16 @@ int run_capture(char *device)
     struct v4l2_buffer buffer;
     struct v4l2_mmap_info mmap_info[NUM_BUFFERS];
 
+#ifdef USB_UVC
+    system("v4l2-ctl -d /dev/video0 -p 25");
+
     v4l2_fd = open("/dev/video0", O_RDWR);
+#else
+    system("v4l2-ctl -d /dev/video2 --set-standard=5");
+
+    v4l2_fd = open("/dev/video2", O_RDWR);
+#endif
+
     if (v4l2_fd == -1) {
         printf("%d: open error\n", __LINE__);
         return -1;
@@ -35,15 +57,25 @@ int run_capture(char *device)
 
     memset(&format, 0x00, sizeof(struct v4l2_format));
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    format.fmt.pix.width = 720;
-    format.fmt.pix.height = 576;
+    format.fmt.pix.width = IMAGE_WIDTH;
+    format.fmt.pix.height = IMAGE_HEIGHT;
     format.fmt.pix.field = V4L2_FIELD_NONE;
+
+#ifdef USB_UVC
+    format.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+#else
     format.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
+#endif
+
     status = ioctl(v4l2_fd, VIDIOC_S_FMT, &format);
     if (status < 0) {
         printf("%d: ioctl VIDIOC_S_FMT error\n", __LINE__);
         return -1;
     }
+
+    // Check if resolution matches
+    assert(format.fmt.pix.width == IMAGE_WIDTH);
+    assert(format.fmt.pix.height == IMAGE_HEIGHT);
 
     memset(&format, 0x00, sizeof(struct v4l2_format));
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -123,7 +155,9 @@ int run_capture(char *device)
             return -1;
         }
 
-        printf("Captured.. \n");
+        printf("Captured.. - frame delta ms: %lld \n", current_timestamp() - timestamp);
+        timestamp = current_timestamp();
+
 
         decode_frame(mmap_info[buffer.index].addr, 2);
 

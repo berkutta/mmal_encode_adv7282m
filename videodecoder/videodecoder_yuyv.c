@@ -19,7 +19,7 @@ void decode_init() {
 void decode_frame(char* data, uint32_t frame_number) {
     if(data == NULL)    return;
 
-    for(int y = 0; y < (CANVAS_HEIGHT - 1); y+=1) {
+    for(int y = 0; y < (IMAGE_HEIGHT - 1); y+=1) {
         memcpy(uyvybuffer + (y * CANVAS_WIDTH * 2), data  + (y * IMAGE_WIDTH * 2), IMAGE_WIDTH * 2);
     }
 

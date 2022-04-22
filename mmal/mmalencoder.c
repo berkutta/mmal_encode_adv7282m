@@ -124,7 +124,11 @@ int mmal_encoder(void)
     /* Set format of video encoder input port */
     MMAL_ES_FORMAT_T *format_in = encoder->input[0]->format;
     format_in->type = MMAL_ES_TYPE_VIDEO;
+#ifdef USB_UVC
+    format_in->encoding = MMAL_ENCODING_YUYV;
+#else
     format_in->encoding = MMAL_ENCODING_UYVY;
+#endif
     format_in->es->video.width = VCOS_ALIGN_UP(CANVAS_WIDTH, 32);
     format_in->es->video.height = VCOS_ALIGN_UP(CANVAS_HEIGHT, 16);
     format_in->es->video.crop.width = CANVAS_WIDTH;

@@ -16,6 +16,8 @@ app: main.o mmal/mmalencoder.o videodecoder/videocapture.o videodecoder/videodec
 clean:
 	-rm -f *.jpg
 	-rm -f *.o
+	-rm -f mmal/*.o
+	-rm -f videodecoder/*.o
 	-rm -f example_basic_1
 	-rm app
 
